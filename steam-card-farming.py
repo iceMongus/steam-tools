@@ -17,7 +17,6 @@
 #
 
 import os, sys
-from subprocess import Popen, PIPE
 from time import sleep
 from signal import signal, SIGINT
 from configparser import NoOptionError, NoSectionError
@@ -26,6 +25,7 @@ from bs4 import BeautifulSoup as bs
 from stlib import stlogger
 from stlib import stconfig
 from stlib import stnetwork
+from stlib import stlibsteam
 
 LOGGER = stlogger.getLogger()
 CONFIG = stconfig.getParser()
@@ -148,35 +148,36 @@ if __name__ == "__main__":
         stlogger.cfixer()
         LOGGER.info("Starting game %s (%s)", badgeSet['gameName'][index], badgeSet['gameID'][index])
         if not dryRun:
-            if os.path.isfile('fake-steam-app.exe'):
-                fakeApp = Popen(['fake-steam-app.exe', badgeSet['gameID'][index]], stdout=PIPE, stderr=PIPE)
+            ret = stlibsteam.fakeIt(badgeSet['gameID'][index])
+            if not ret:
+                while True:
+                    stlogger.cmsg("{:2d} cards drop remaining. Waiting...".format(badgeSet['cardCount'][index]), end='\r')
+                    LOGGER.debug("Waiting cards drop loop")
+                    if integrityCheck: LOGGER.debug("Current: %s", [badgeSet[i][index] for i,v in badgeSet.items()])
+                    for i in range(40):
+                        sleep(1)
+
+                    stlogger.cfixer('\r')
+                    stlogger.cmsg("Checking if game have more cards drops...", end='\r')
+                    badgeSet['cardCount'][index] = updateCardCount(badgeSet['gameID'][index])
+
+                    if badgeSet['cardCount'][index] < 1:
+                        stlogger.cfixer()
+                        LOGGER.info("%s have no cards to drop. Ignoring.", badgeSet['gameName'][index])
+                        break
+                    stlogger.cfixer('\r')
+            elif ret == 1:
+                LOGGER.critical("I cannot find a Steam instance.")
+                LOGGER.critical("Please, check if your already start your steam client.")
+                sys.exit(ret)
+            elif ret == 2:
+                LOGGER.critical("I cannot find a game with that ID (%s). Exiting.", sys.argv[1])
+                sys.exit(ret)
             else:
-                fakeApp = Popen(['python', 'fake-steam-app.py', badgeSet['gameID'][index]], stdout=PIPE, stderr=PIPE)
-
-        while True:
-            stlogger.cmsg("{:2d} cards drop remaining. Waiting...".format(badgeSet['cardCount'][index]), end='\r')
-            LOGGER.debug("Waiting cards drop loop")
-            if integrityCheck: LOGGER.debug("Current: %s", [badgeSet[i][index] for i,v in badgeSet.items()])
-            for i in range(40):
-                if not dryRun and fakeApp.poll():
-                    stlogger.cfixer()
-                    LOGGER.critical(fakeApp.stderr.read().decode('utf-8'))
-                    sys.exit(1)
-                sleep(1)
-            stlogger.cfixer('\r')
-            stlogger.cmsg("Checking if game have more cards drops...", end='\r')
-            badgeSet['cardCount'][index] = updateCardCount(badgeSet['gameID'][index])
-
-            if badgeSet['cardCount'][index] < 1:
-                stlogger.cfixer()
-                LOGGER.info("%s have no cards to drop. Ignoring.", badgeSet['gameName'][index])
-                break
-            stlogger.cfixer('\r')
+                sys.exit(ret)
 
         LOGGER.info("Closing %s", badgeSet['gameName'][index])
-
         if not dryRun:
-            fakeApp.terminate()
-            fakeApp.wait()
+            stlibsteam.close()
 
     LOGGER.info("There's nothing else we can do. Leaving.")

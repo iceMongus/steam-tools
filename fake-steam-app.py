@@ -16,54 +16,43 @@
 # along with this program. If not, see http://www.gnu.org/licenses/.
 #
 
-import os, sys
+import sys
 from time import sleep
+from datetime import timedelta
 from signal import signal, SIGINT
-from ctypes import CDLL
 
-if os.name == 'nt':
-    ext = '.dll'
-else:
-    ext = '.so'
+from stlib import stlogger
+from stlib import stlibsteam
 
-if sys.maxsize > 2**32:
-    STEAM_API = 'lib64/libsteam_api' + ext
-else:
-    STEAM_API = 'lib32/libsteam_api' + ext
-
-if not os.path.isfile(STEAM_API):
-    libDir = '/share/steam-tools'
-    if os.path.isfile(os.path.join('/usr/local', libDir, STEAM_API)):
-        STEAM_API = os.path.join('/usr/local', libDir, STEAM_API)
-    elif os.path.isfile(os.path.join('/usr', libDir, STEAM_API)):
-        STEAM_API = os.path.join('/usr', libDir, STEAM_API)
-    else:
-        print("I cannot find the SteamAPI. Please, verify your installation.", file=sys.stderr)
-        sys.exit(1)
-
-STEAM_API = CDLL(STEAM_API)
-
-if len(sys.argv) < 2:
-    print("Hello~wooooo. Where is the game ID?", file=sys.stderr)
-    sys.exit(1)
+LOGGER = stlogger.getLogger()
 
 def signal_handler(signal, frame):
-    print("Exiting...")
+    LOGGER.info("Exiting...")
+    stlibsteam.close()
     sys.exit(0)
 
 if __name__ == "__main__":
     signal(SIGINT, signal_handler)
-    os.environ["SteamAppId"] = sys.argv[1]
 
-    if STEAM_API.SteamAPI_IsSteamRunning():
-        if not STEAM_API.SteamAPI_Init():
-            print("I cannot find a game with that ID. Exiting.")
-            sys.exit(1)
-
-        print("Game started.")
-        while True:
-            sleep(1)
-    else:
-        print("I cannot find a Steam instance.", file=sys.stderr)
-        print("Please, check if your already start your steam client.", file=sys.stderr)
+    if len(sys.argv) < 2:
+        LOGGER.critical("Hello~wooooo. Where is the game ID?")
         sys.exit(1)
+
+    ret = stlibsteam.fakeIt(sys.argv[1])
+    
+    if not ret:
+        LOGGER.info("Game started.")
+        c = 1
+        while True:
+            stlogger.cmsg("Playing {} for {} seconds".format(sys.argv[1], timedelta(seconds=c)), end='\r')
+            sleep(1)
+            c += 1
+    elif ret == 1:
+        LOGGER.critical("I cannot find a Steam instance.")
+        LOGGER.critical("Please, check if your already start your steam client.")
+        sys.exit(ret)
+    elif ret == 2:
+        LOGGER.critical("I cannot find a game with that ID (%s). Exiting.", sys.argv[1])
+        sys.exit(ret)
+    else:
+        sys.exit(ret)
